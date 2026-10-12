@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Mathro.Client/Mathro.Client.csproj" />
+    <Project Path="src/Mathro.Core/Mathro.Core.csproj" />
+  </Folder>
+</Solution>
