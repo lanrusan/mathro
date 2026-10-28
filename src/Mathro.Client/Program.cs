@@ -2,7 +2,7 @@
 
 
 var Deck= new Deck();
-List<string> deck = new List<string>();
+List<Card> deck = new List<Card>();
 
 Deck.deckInitialize(deck);
 Deck.DeckShuffle(deck);
