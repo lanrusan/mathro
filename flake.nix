@@ -11,6 +11,18 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
       dotnet-sdk = pkgs.dotnetCorePackages.sdk_10_0;
+      runtimeLibs = with pkgs; [
+        libGL
+
+        wayland
+        libxkbcommon
+        alsa-lib
+        xorg.libX11
+        xorg.libXcursor
+        xorg.libXi
+        xorg.libXrandr
+        xorg.libXinerama
+      ];
     in
     {
       devShells.${system}.default = pkgs.mkShell {
@@ -23,19 +35,13 @@
           csharpier
         ];
 
+        buildInputs = runtimeLibs;
+
         DOTNET_ROOT = "${dotnet-sdk}";
 
         DOTNET_CLI_TELEMETRY_OPTOUT = 1;
 
-        NIX_LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (
-          with pkgs;
-          [
-            # zlib
-            # openssl
-            # icu
-            # stdenv.cc.cc.lib
-          ]
-        );
+        LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath runtimeLibs;
 
         CSHARP_DEV_ENV = "1";
       };
