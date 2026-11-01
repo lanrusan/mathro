@@ -1,21 +1,16 @@
 using System.Numerics;
+using System.Linq;
 using Mathro.Core;
 using Raylib_cs;
 using Card2 = Mathro.Core.Card;
 
 namespace Mathro.Client;
 
-struct Card(CardKind kind)
+struct Card(CardCategory category, string value)
 {
-    public CardKind Kind = kind;
+    public CardCategory Category = category;
+    public string Value = value;
 }
-
-enum CardKind
-{
-    One,
-    Two,
-    Three,
-};
 
 class CardView(Card card, Vector2 position, bool isSelected = false)
 {
@@ -102,7 +97,6 @@ class CardView(Card card, Vector2 position, bool isSelected = false)
 interface IState
 {
     public void Update(float dt, UserInput input);
-
     public void Draw(Assets assets);
 }
 
@@ -131,7 +125,7 @@ struct RunInfo()
     public List<Card> Deck = [];
 }
 
-class PickingState(RunInfo info) : IState
+class PickingState : IState
 {
     const int DeckX = 350;
     const int DeckY = 450;
@@ -139,12 +133,20 @@ class PickingState(RunInfo info) : IState
 
     private bool IsDebug = true;
 
-    public RunInfo State = info;
+    public RunInfo State;
     public List<CardView> Hand = [];
+
+    public RoundController Controller = new RoundController();
 
     private CardView? Hovered;
     private CardView? Dragged;
     private Vector2 DraggedDisplacement = Vector2.Zero;
+
+    public PickingState(RunInfo info)
+    {
+        State = info;
+        Controller.StartRound(1, 4);
+    }
 
     private void UpdateHand(Vector2 mousePosition)
     {
@@ -210,7 +212,6 @@ class PickingState(RunInfo info) : IState
                             Dragged = card;
                             DraggedDisplacement = mouse;
                         }
-
                         break;
                     default:
                         Dragged = null;
@@ -240,11 +241,11 @@ class PickingState(RunInfo info) : IState
             {
                 if (Raylib.IsKeyDown(KeyboardKey.LeftShift))
                 {
-                    Hand.Add(new CardView(new Card(CardKind.One), new(1400, 700), true));
+                    Hand.Add(new CardView(new Card(CardCategory.Number, "5"), new(1400, 700), true));
                 }
                 else
                 {
-                    Hand.Add(new CardView(new Card(CardKind.One), new(1400, 700), false));
+                    Hand.Add(new CardView(new Card(CardCategory.Number, "5"), new(1400, 700), false));
                 }
             }
 
@@ -256,6 +257,33 @@ class PickingState(RunInfo info) : IState
             if (Raylib.IsKeyPressed(KeyboardKey.Backslash) && Hand.Count != 0)
             {
                 Hand.Clear();
+            }
+        }
+
+        if (Raylib.IsKeyPressed(KeyboardKey.Space))
+        {
+            var selectedViews = Hand.Where(c => c.IsSelected).ToList();
+
+            if (selectedViews.Count > 0 && selectedViews.Count <= 5)
+            {
+                List<PlayCard> playCards = selectedViews.Select(v => new PlayCard
+                {
+                    Category = v.Card.Category,
+                    Value = v.Card.Value
+                }).ToList();
+
+                bool roundPassed = Controller.PlayHand(playCards);
+
+                foreach (var view in selectedViews)
+                {
+                    Hand.Remove(view);
+                }
+
+                if (roundPassed)
+                {
+                    System.Console.WriteLine("Target Met! Advancing Round...");
+                    Controller.StartRound(Controller.CurrentRound + 1, 4);
+                }
             }
         }
 
@@ -333,6 +361,10 @@ class PickingState(RunInfo info) : IState
             var fps = Raylib.GetFPS();
             Raylib.DrawText($"FPS: {fps}", 0, 0, 24, Color.RayWhite);
         }
+
+        Raylib.DrawText($"Round: {Controller.CurrentRound}", 120, 120, 20, Color.RayWhite);
+        Raylib.DrawText($"Plays Left: {Controller.PlaysRemaining}", 120, 150, 20, Color.RayWhite);
+        Raylib.DrawText($"Score: {Controller.AccumulatedScore} / {Controller.TargetScore}", 120, 180, 20, Color.RayWhite);
     }
 }
 
