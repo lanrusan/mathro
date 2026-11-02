@@ -1,69 +1,201 @@
 ﻿using System.Data;
+using System.Text;
 
 namespace Mathro.Core;
 
-public class PlayCard
+public enum RoundPhase
 {
-    public CardCategory Category { get; set; }
-    public string Value { get; set; }
+    Selecting,
+    Won,
+    Lost,
+}
+
+public enum PlayStatus
+{
+    Err,
+    Scored,
+    RoundWon,
+    RoundLost,
+}
+
+public record RoundSettings(
+    int HandSize = 9,
+    int PlaysPerRound = 5,
+    int DiscardsPerRound = 4,
+    int MaxCardsPerPlay = 5
+);
+
+public readonly record struct ScoreBreakdown(double Base, double Multiplier)
+{
+    public long Total =>
+        Math.Max(0, (long)Math.Round(Base * Multiplier, MidpointRounding.AwayFromZero));
+}
+
+public record PlayResult(PlayStatus Status, ScoreBreakdown Breakdown, IReadOnlyList<Card> Drawn)
+{
+    public bool Ok => Status != PlayStatus.Err;
+
+    public static readonly PlayResult Err = new(PlayStatus.Err, default, []);
+}
+
+public record DiscardResult(bool Ok, List<Card> Drawn)
+{
+    public static readonly DiscardResult Err = new(false, []);
 }
 
 public class RoundController
 {
-    public int CurrentRound { get; private set; }
-    public double AccumulatedScore { get; private set; }
-    public double TargetScore { get; private set; }
+    private readonly Deck _deck;
+    private readonly List<Card> _hand = [];
 
-    public void StartRound(int roundNumber)
+    public RoundSettings Settings { get; }
+    public int CurrentRound { get; }
+    public long TargetScore { get; }
+
+    public long AccumulatedScore { get; private set; }
+    public int PlaysRemaining { get; private set; }
+    public int DiscardsRemaining { get; private set; }
+    public RoundPhase Phase { get; private set; } = RoundPhase.Selecting;
+
+    public int DeckRemaining => _deck.Remaining;
+    public int DeckTotal => _deck.Total;
+
+    public IReadOnlyList<Card> Hand
     {
-        CurrentRound = roundNumber;
-        AccumulatedScore = 0;
-
-        TargetScore = 500 * Math.Pow(1.5, roundNumber - 1);
+        get { return _hand; }
     }
 
-    public bool PlayHand(List<Card> selectedCards)
+    public RoundController(Deck deck, RoundSettings settings, int roundNumber)
     {
-        string equationString = "";
-        double totalMultiplier = 1;
+        _deck = deck;
+        Settings = settings;
+        CurrentRound = roundNumber;
 
-        foreach (var card in selectedCards)
+        TargetScore = (long)Math.Round(500 * Math.Pow(1.5, roundNumber - 1));
+        PlaysRemaining = settings.PlaysPerRound;
+        DiscardsRemaining = settings.DiscardsPerRound;
+
+        _deck.Reset();
+        RefillHand();
+    }
+
+    private ScoreBreakdown EvaluateCards(IReadOnlyList<Card> cards)
+    {
+        return new ScoreBreakdown(1, 2);
+    }
+
+    private ScoreBreakdown EvaluateMathString(IReadOnlyList<Card> cards)
+    {
+        StringBuilder equation = new();
+        foreach (var card in cards)
         {
-            if (card.Category == CardCategory.Number || card.Category == CardCategory.Operator)
-            {
-                string token = card.Value.ToLower() == "x" ? "*" : card.Value;
-                equationString += token;
-            }
-            else if (card.Category == CardCategory.Multiplier)
-            {
-                totalMultiplier *= double.Parse(card.Value);
-            }
+            equation.Append(card.Value);
         }
 
-        double baseScore = EvaluateMathString(equationString);
-        double finalPlayScore = baseScore * totalMultiplier;
-
-        AccumulatedScore += finalPlayScore;
-
-        return HasMetTarget();
-    }
-
-    private double EvaluateMathString(string equation)
-    {
         try
         {
-            DataTable dt = new DataTable();
-            var result = dt.Compute(equation, "");
-            return Convert.ToDouble(result);
+            DataTable dt = new();
+            var result = dt.Compute(equation.ToString(), "");
+            var value = Convert.ToDouble(result);
+            return new ScoreBreakdown(value, 1);
         }
         catch
         {
-            return 0;
+            return new ScoreBreakdown(0, 0);
         }
+    }
+
+    public PlayResult PlayHand(IReadOnlyList<Card> cards)
+    {
+        if (!CanAct(cards, PlaysRemaining))
+        {
+            return PlayResult.Err;
+        }
+
+        var score = EvaluateMathString(cards);
+
+        PlaysRemaining--;
+        AccumulatedScore += score.Total;
+        RemoveFromHand(cards);
+
+        if (HasMetTarget())
+        {
+            Phase = RoundPhase.Won;
+        }
+        else if (PlaysRemaining == 0 || (_hand.Count == 0 && _deck.Remaining == 0))
+        {
+            Phase = RoundPhase.Lost;
+        }
+
+        IReadOnlyList<Card> drawn = [];
+        if (Phase == RoundPhase.Selecting)
+        {
+            drawn = RefillHand();
+        }
+
+        var status = Phase switch
+        {
+            RoundPhase.Won => PlayStatus.RoundWon,
+            RoundPhase.Lost => PlayStatus.RoundLost,
+            _ => PlayStatus.Scored,
+        };
+
+        return new PlayResult(status, score, drawn);
     }
 
     public bool HasMetTarget()
     {
         return AccumulatedScore >= TargetScore;
+    }
+
+    public DiscardResult Discard(IReadOnlyList<Card> cards)
+    {
+        if (!CanAct(cards, DiscardsRemaining))
+        {
+            return DiscardResult.Err;
+        }
+
+        DiscardsRemaining--;
+        RemoveFromHand(cards);
+        var drawn = RefillHand();
+
+        if (_hand.Count == 0)
+        {
+            Phase = RoundPhase.Lost;
+        }
+
+        return new DiscardResult(true, drawn);
+    }
+
+    private void RemoveFromHand(IReadOnlyList<Card> cards)
+    {
+        foreach (var card in cards)
+        {
+            _hand.Remove(card);
+        }
+    }
+
+    private bool CanAct(IReadOnlyList<Card> cards, int actionsLeft)
+    {
+        return Phase == RoundPhase.Selecting
+            && actionsLeft > 0
+            && cards.Count > 0
+            && cards.Count <= Settings.MaxCardsPerPlay
+            && cards.Distinct().Count() == cards.Count
+            && cards.All(_hand.Contains);
+    }
+
+    private List<Card> RefillHand()
+    {
+        var drawn = _deck.Draw(Settings.HandSize - _hand.Count);
+        _hand.AddRange(drawn);
+        return drawn;
+    }
+
+    public List<Card> DrawDebug(int amount)
+    {
+        var drawn = _deck.Draw(amount);
+        _hand.AddRange(drawn);
+        return drawn;
     }
 }

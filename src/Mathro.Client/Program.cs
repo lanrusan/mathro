@@ -4,12 +4,14 @@ using Raylib_cs;
 
 namespace Mathro.Client;
 
-class CardView(Card card, Vector2 position, bool isSelected = false)
+class CardView(Card card, Vector2 position)
 {
     public const float Width = 100;
     public const float Height = 140;
     public static readonly Vector2 CardOrigin = new(Width / 2, Height / 2);
     public static readonly Rectangle CollisionOrigin = new(-Width / 2, -Height / 2, Width, Height);
+
+    const float Epsilon = 0.001f;
 
     public Card Card = card;
 
@@ -25,7 +27,7 @@ class CardView(Card card, Vector2 position, bool isSelected = false)
     public float Elevation = 4f;
     public float TargetElevation = 4f;
 
-    public bool IsSelected = isSelected;
+    public bool IsSelected = false;
 
     public Rectangle Rectangle()
     {
@@ -42,7 +44,7 @@ class CardView(Card card, Vector2 position, bool isSelected = false)
 
     private static float ClampLerp(float original, float target, float scale)
     {
-        if (Math.Abs(original - target) < 0.001)
+        if (Math.Abs(original - target) < Epsilon)
         {
             return target;
         }
@@ -59,7 +61,7 @@ class CardView(Card card, Vector2 position, bool isSelected = false)
         float elevationScale
     )
     {
-        if (Math.Abs((Position - TargetPosition).Length()) < 0.001)
+        if ((Position - TargetPosition).Length() < Epsilon)
         {
             Position = TargetPosition;
         }
@@ -102,8 +104,8 @@ class CardView(Card card, Vector2 position, bool isSelected = false)
             Color.White
         );
 
-        const int CenterSize = 50;
-        var centerText = Raylib.MeasureTextEx(Raylib.GetFontDefault(), Card.Value, CenterSize, 1);
+        var centerSize = 50f * Scale;
+        var centerText = Raylib.MeasureTextEx(Raylib.GetFontDefault(), Card.Value, centerSize, 1);
 
         Raylib.DrawTextPro(
             Raylib.GetFontDefault(),
@@ -111,15 +113,15 @@ class CardView(Card card, Vector2 position, bool isSelected = false)
             Position,
             new(centerText.X / 2, centerText.Y / 2),
             Rotation,
-            CenterSize,
+            centerSize,
             1,
             Color.Black
         );
 
-        const int TopLeftSize = 15;
-        Vector2 topLeftOffset = new(-Width * 0.35f, -Height * 0.38f);
+        var topLeftSize = 15f * Scale;
+        Vector2 topLeftOffset = new(-Width * 0.35f * Scale, -Height * 0.38f * Scale);
         var topLeft = Raymath.Vector2Rotate(topLeftOffset, Raylib.DEG2RAD * Rotation);
-        var topLeftText = Raylib.MeasureTextEx(Raylib.GetFontDefault(), Card.Value, TopLeftSize, 1);
+        var topLeftText = Raylib.MeasureTextEx(Raylib.GetFontDefault(), Card.Value, topLeftSize, 1);
 
         Raylib.DrawTextPro(
             Raylib.GetFontDefault(),
@@ -127,20 +129,20 @@ class CardView(Card card, Vector2 position, bool isSelected = false)
             Position + topLeft,
             new(topLeftText.X / 2, topLeftText.Y / 2),
             Rotation,
-            TopLeftSize,
+            topLeftSize,
             1,
             Color.Black
         );
     }
 }
 
-interface IState
+interface IScene
 {
     public void Update(float dt, MouseInput input);
     public void Draw(Assets assets);
 }
 
-struct Assets
+class Assets
 {
     public Texture2D Card;
 
@@ -157,27 +159,30 @@ struct Assets
     }
 }
 
-class World(IState state)
+class World(IScene scene)
 {
     public Assets Assets = new();
-    public IState State = state;
+    public IScene Scene = scene;
     public Camera2D Camera = new();
 }
 
-struct RunInfo()
+class RunInfo
 {
     public uint Currency = 0;
 
-    // public List<Card> Deck = [];
     public Deck Deck = new();
 
-    public int HandSize = 9;
-    public int DiscardSize = 4;
-    public int PlaySize = 5;
-    public int SelectSize = 7;
+    public RoundSettings Settings = new();
 }
 
-class PickingState : IState
+enum ActionState
+{
+    GameLost,
+    GameWin,
+    NextRound,
+}
+
+class PickingScene : IScene
 {
     const int HandX = 350;
     const int HandY = 450;
@@ -188,14 +193,13 @@ class PickingState : IState
 
     private bool IsDebug = true;
 
-    public RunInfo State;
+    private static readonly Vector2 DeckPosition = new(DeckX, DeckY);
+
+    public RunInfo Info;
     public List<CardView> Hand = [];
-    public List<CardView> DiscardingHand = [];
+    public List<CardView> ActingHand = [];
 
-    private int DiscardsLeft = 3;
-    private int PlaysLeft = 4;
-
-    public RoundController Controller = new();
+    public RoundController Controller;
 
     private CardView? Hovered;
     private CardView? Dragged;
@@ -203,10 +207,26 @@ class PickingState : IState
 
     private Vector2 LightSource = new(640, -100);
 
-    public PickingState(RunInfo info)
+    public PickingScene(RunInfo info)
     {
-        State = info;
-        Controller.StartRound(1);
+        Info = info;
+        StartRound(1);
+    }
+
+    private void StartRound(int round)
+    {
+        Controller = new RoundController(Info.Deck, Info.Settings, round);
+        Hand.Clear();
+        ActingHand.Clear();
+        Hovered = null;
+        Dragged = null;
+        SpawnCardViews(Controller.Hand);
+    }
+
+    private void SpawnCardViews(IEnumerable<Card> cards)
+    {
+        foreach (var card in cards)
+            Hand.Add(new CardView(card, DeckPosition));
     }
 
     private void UpdateHand(Vector2 mousePosition)
@@ -268,6 +288,12 @@ class PickingState : IState
                 switch (input.MouseAction)
                 {
                     case MouseAction.LeftClick:
+                        var selected = Hand.FindAll(v => v.IsSelected).ToList().Count;
+                        if (selected >= Info.Settings.MaxCardsPerPlay)
+                        {
+                            break;
+                        }
+
                         card.IsSelected = !card.IsSelected;
                         break;
                     case MouseAction.LeftHold:
@@ -296,48 +322,50 @@ class PickingState : IState
 
     private void UpdateAction()
     {
-        if (
-            Raylib.IsKeyPressed(KeyboardKey.Backspace)
-            && DiscardsLeft > 0
-            && DiscardingHand.Count == 0
-        )
+        var selected = Hand.Where(v => v.IsSelected).ToList();
+        if (selected.Count == 0)
         {
-            for (int i = Hand.Count - 1; i >= 0; i--)
-            {
-                if (Hand[i].IsSelected)
-                {
-                    var card = Hand[i];
-                    card.TargetPosition = new(Program.VirtualWidth + 200, card.TargetPosition.Y);
-                    card.TargetRotation = 15;
-
-                    DiscardingHand.Add(card);
-                    Hand.RemoveAt(i);
-                }
-            }
-
-            DiscardsLeft--;
+            return;
         }
 
-        if (Raylib.IsKeyPressed(KeyboardKey.Space))
+        var cards = selected.Select(v => v.Card).ToList();
+
+        if (Raylib.IsKeyPressed(KeyboardKey.Backspace))
         {
-            var selectedViews = Hand.Where(c => c.IsSelected).ToList();
-
-            if (selectedViews.Count > 0 && selectedViews.Count <= 5)
+            var result = Controller.Discard(cards);
+            if (!result.Ok)
             {
-                List<Card> playCards = selectedViews.Select(v => v.Card).ToList();
-
-                bool roundPassed = Controller.PlayHand(playCards);
-
-                foreach (var view in selectedViews)
-                {
-                    Hand.Remove(view);
-                }
-
-                if (roundPassed)
-                {
-                    Controller.StartRound(Controller.CurrentRound + 1);
-                }
+                return;
             }
+
+            SendAway(
+                selected,
+                v => new Vector2(Program.VirtualWidth + 200, v.TargetPosition.Y),
+                15
+            );
+            SpawnCardViews(result.Drawn);
+        }
+        else if (Raylib.IsKeyPressed(KeyboardKey.Space))
+        {
+            var result = Controller.PlayHand(cards);
+            if (!result.Ok)
+            {
+                return;
+            }
+
+            SendAway(selected, v => new Vector2(v.TargetPosition.X, v.TargetPosition.Y - 200), 0);
+            SpawnCardViews(result.Drawn);
+        }
+    }
+
+    private void SendAway(List<CardView> views, Func<CardView, Vector2> destination, float rotation)
+    {
+        foreach (var view in views)
+        {
+            view.TargetPosition = destination(view);
+            view.TargetRotation = rotation;
+            ActingHand.Add(view);
+            Hand.Remove(view);
         }
     }
 
@@ -350,9 +378,7 @@ class PickingState : IState
         {
             if (Raylib.IsKeyPressed(KeyboardKey.Enter))
             {
-                Hand.Add(
-                    new CardView(new Card(CardCategory.Number, "3"), new(DeckX, DeckY), false)
-                );
+                Hand.AddRange(new CardView(Controller.DrawDebug(1)[0], DeckPosition));
             }
 
             if (Raylib.IsKeyPressed(KeyboardKey.Backslash) && Hand.Count != 0)
@@ -369,12 +395,17 @@ class PickingState : IState
         Hand.Sort(
             (x, y) =>
             {
-                return x.Position.X.CompareTo(y.Position.X);
+                return x.TargetPosition.X.CompareTo(y.TargetPosition.X);
             }
         );
 
         UpdateCollisions(input);
-        UpdateAction();
+
+        if (ActingHand.Count == 0 && Dragged is null && Controller.Phase == RoundPhase.Selecting)
+        {
+            UpdateAction();
+        }
+
         UpdateHand(input.MousePosition);
 
         const float ShuffleScale = 10;
@@ -395,24 +426,39 @@ class PickingState : IState
             card.Update(moveSpeed, rotationSpeed, scaleSpeed, elevationSpeed);
         }
 
-        const float DiscardingScale = 20;
-        var discardingSpeed = 1 - MathF.Exp(-DiscardingScale * dt);
+        const float ActingScale = 20;
+        var actingSpeed = 1 - MathF.Exp(-ActingScale * dt);
 
-        for (int i = DiscardingHand.Count - 1; i >= 0; i--)
+        for (int i = ActingHand.Count - 1; i >= 0; i--)
         {
-            var card = DiscardingHand[i];
+            var card = ActingHand[i];
 
-            card.Update(discardingSpeed, rotationSpeed, scaleSpeed, elevationSpeed);
+            card.Update(actingSpeed, rotationSpeed, scaleSpeed, elevationSpeed);
             if (card.Position == card.TargetPosition)
             {
-                DiscardingHand.RemoveAt(i);
+                ActingHand.RemoveAt(i);
+            }
+        }
+
+        if (ActingHand.Count == 0)
+        {
+            if (Controller.Phase == RoundPhase.Won)
+            {
+                // TODO: Pick a joker scene.
+                StartRound(Controller.CurrentRound + 1);
+            }
+            else if (Controller.Phase == RoundPhase.Lost)
+            {
+                // TODO: Game lose screen
+                Info = new RunInfo();
+                StartRound(1);
             }
         }
     }
 
     private void DrawDeck(Assets assets)
     {
-        CardView baseCard = new(new Card(CardCategory.Number, "4"), new(DeckX, DeckY), false);
+        CardView baseCard = new(new Card(CardCategory.Operator, "?"), DeckPosition);
 
         baseCard.Scale += 0.1f;
         Raylib.DrawTexturePro(
@@ -425,7 +471,8 @@ class PickingState : IState
         );
         baseCard.Scale -= 0.1f;
 
-        for (int i = 0; i < Hand.Count; i++)
+        const int MaxPileCards = 12;
+        for (int i = 0; i < Math.Min(Controller.DeckRemaining, MaxPileCards); i++)
         {
             baseCard.DrawShadow(assets, LightSource);
             baseCard.DrawCard(assets);
@@ -436,6 +483,13 @@ class PickingState : IState
 
     private void DrawHand(Assets assets)
     {
+        Raylib.DrawRectangleRounded(
+            new(HandX, HandY + 5, (int)HandWidth, (int)CardView.Height),
+            0.25f,
+            0,
+            new Color(0, 0, 0, 40)
+        );
+
         foreach (CardView card in Hand)
         {
             if (Dragged is not null && card == Dragged)
@@ -459,28 +513,19 @@ class PickingState : IState
         Dragged?.DrawShadow(assets, LightSource);
         Dragged?.DrawCard(assets);
 
-        foreach (CardView card in DiscardingHand)
+        foreach (CardView card in ActingHand)
         {
             card.DrawShadow(assets, LightSource);
         }
 
-        foreach (CardView card in DiscardingHand)
+        foreach (CardView card in ActingHand)
         {
             card.DrawCard(assets);
         }
     }
 
-    public void Draw(Assets assets)
+    public void DrawInfo()
     {
-        Raylib.DrawRectangle(0, 0, Program.VirtualWidth, Program.VirtualHeight, Color.DarkGreen);
-
-        Raylib.DrawRectangleRounded(
-            new(HandX, HandY + 5, (int)HandWidth, (int)CardView.Height),
-            0.25f,
-            0,
-            new Color(0, 0, 0, 40)
-        );
-
         Raylib.DrawRectangleRounded(
             new(HandX, 35, (int)HandWidth, (int)CardView.Height),
             0.25f,
@@ -490,11 +535,15 @@ class PickingState : IState
 
         Raylib.DrawRectangle(100, 100, 200, 500, new Color(0, 0, 0, 40));
 
-        DrawDeck(assets);
-
         Raylib.DrawText($"Round: {Controller.CurrentRound}", 120, 120, 20, Color.RayWhite);
-        Raylib.DrawText($"Plays Left: {PlaysLeft}", 120, 150, 20, Color.RayWhite);
-        Raylib.DrawText($"Discards Left: {DiscardsLeft}", 120, 180, 20, Color.RayWhite);
+        Raylib.DrawText($"Plays Left: {Controller.PlaysRemaining}", 120, 150, 20, Color.RayWhite);
+        Raylib.DrawText(
+            $"Discards Left: {Controller.DiscardsRemaining}",
+            120,
+            180,
+            20,
+            Color.RayWhite
+        );
         Raylib.DrawText(
             $"Score: {Controller.AccumulatedScore} / {Controller.TargetScore}",
             120,
@@ -502,6 +551,15 @@ class PickingState : IState
             20,
             Color.RayWhite
         );
+    }
+
+    public void Draw(Assets assets)
+    {
+        Raylib.DrawRectangle(0, 0, Program.VirtualWidth, Program.VirtualHeight, Color.DarkGreen);
+
+        DrawDeck(assets);
+
+        DrawInfo();
 
         DrawHand(assets);
 
@@ -587,7 +645,7 @@ static class Program
 
         Raylib.SetTargetFPS(60);
 
-        World world = new(new PickingState(new()));
+        World world = new(new PickingScene(new()));
         InputReader inputReader = new();
 
         while (!Raylib.WindowShouldClose())
@@ -613,13 +671,13 @@ static class Program
             var mouse = Raylib.GetScreenToWorld2D(Raylib.GetMousePosition(), world.Camera);
             var input = inputReader.ReadInput(dt, mouse);
 
-            world.State.Update(dt, input);
+            world.Scene.Update(dt, input);
 
             Raylib.BeginDrawing();
             Raylib.ClearBackground(Color.Black);
             Raylib.BeginMode2D(world.Camera);
 
-            world.State.Draw(world.Assets);
+            world.Scene.Draw(world.Assets);
 
             Raylib.EndMode2D();
             Raylib.EndDrawing();

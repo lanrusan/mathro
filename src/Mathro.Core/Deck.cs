@@ -18,96 +18,50 @@ public class Card(CardCategory category, string value)
 
 public class Deck
 {
-    private List<Card> DeckFull;
-    private List<Card> DeckUsed;
+    private readonly List<Card> _allCards = [];
+    private readonly List<Card> _drawPile = [];
+    private readonly Random _random;
 
-    public Deck()
+    public int Total => _allCards.Count;
+
+    public int Remaining => _drawPile.Count;
+
+    public Deck(Random? random = null)
     {
-        DeckFull =
-        [
-            new Card(CardCategory.Operator, "+"),
-            new Card(CardCategory.Operator, "+"),
-            new Card(CardCategory.Operator, "+"),
-            new Card(CardCategory.Operator, "+"),
-            new Card(CardCategory.Operator, "-"),
-            new Card(CardCategory.Operator, "-"),
-            new Card(CardCategory.Operator, "-"),
-            new Card(CardCategory.Operator, "-"),
-            new Card(CardCategory.Operator, "*"),
-            new Card(CardCategory.Operator, "*"),
-            new Card(CardCategory.Operator, "/"),
-            new Card(CardCategory.Operator, "/"),
-        ];
+        _random = random ?? Random.Shared;
 
-        for (int i = 0; i < 3; i++)
+        foreach (var (op, count) in new[] { ("+", 4), ("-", 4), ("*", 2), ("/", 2) })
         {
-            for (int j = 1; j < 10; j++)
+            for (int i = 0; i < count; i++)
             {
-                DeckFull.Add(new Card(CardCategory.Number, j.ToString()));
+                _allCards.Add(new Card(CardCategory.Operator, op));
             }
         }
 
-        Random.Shared.Shuffle(CollectionsMarshal.AsSpan(DeckFull));
-        DeckUsed = DeckFull;
+        for (int copy = 0; copy < 3; copy++)
+        {
+            for (int n = 1; n < 10; n++)
+            {
+                _allCards.Add(new Card(CardCategory.Number, n.ToString()));
+            }
+        }
+
+        Reset();
     }
 
     public void Reset()
     {
-        DeckUsed = DeckFull;
+        _drawPile.Clear();
+        _drawPile.AddRange(_allCards);
+        _random.Shuffle(CollectionsMarshal.AsSpan(_drawPile));
     }
 
     public List<Card> Draw(int amount)
     {
-        var toDraw = Math.Min(DeckUsed.Count, amount);
-        var startIndex = DeckUsed.Count - toDraw;
-        var drawnCards = DeckUsed[startIndex..];
-        DeckUsed.RemoveRange(startIndex, toDraw);
-
-        return drawnCards;
+        var toDraw = Math.Clamp(amount, 0, _drawPile.Count);
+        var startIndex = _drawPile.Count - toDraw;
+        var drawn = _drawPile[startIndex..];
+        _drawPile.RemoveRange(startIndex, toDraw);
+        return drawn;
     }
-
-    // public void DeckDraw(List<Card> deck)
-    // {
-    //     Console.WriteLine("Drawing a card from the deck...");
-    //     List<Card> tempDeck = deck.ToList();
-    //     List<Card> drawnCards = new List<Card>();
-    //     string choice = "";
-    //     do
-    //     {
-    //         if (tempDeck.Count > 5)
-    //         {
-    //             for (int i = 0; i < 5; i++) //Draw 5 Cards
-    //             {
-    //                 drawnCards.Add(tempDeck[i]);
-    //             }
-    //             tempDeck.RemoveRange(0, 5);
-    //         }
-    //         else
-    //         {
-    //             for (int i = 0; i < tempDeck.Count; i++)
-    //             {
-    //                 drawnCards.Add(tempDeck[i]);
-    //             }
-    //             tempDeck.Clear();
-    //         }
-    //
-    //         Console.WriteLine("Drawn cards:");
-    //         foreach (var card in drawnCards)
-    //         {
-    //             Console.Write(card.value + " ");
-    //         }
-    //         if (tempDeck.Count == 0)
-    //         {
-    //             Console.WriteLine("\nNo more cards left in the deck.");
-    //             break;
-    //         }
-    //         else
-    //         {
-    //             Console.WriteLine("Draw Again? (y/n)");
-    //             drawnCards.Clear();
-    //             choice = Console.ReadLine();
-    //             Console.WriteLine();
-    //         }
-    //     } while (tempDeck.Count != 0 && choice == "y");
-    // }
 }
