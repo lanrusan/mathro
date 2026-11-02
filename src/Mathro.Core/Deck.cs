@@ -1,88 +1,113 @@
-﻿namespace Mathro.Core;
+﻿using System.Runtime.InteropServices;
 
-using System.Runtime.InteropServices;
+namespace Mathro.Core;
+
+public enum CardCategory
+{
+    Number,
+    Operator,
+    Multiplier,
+    Modifier,
+}
+
+public class Card(CardCategory category, string value)
+{
+    public CardCategory Category = category;
+    public string Value = value;
+}
 
 public class Deck
 {
-    public void deckInitialize(List<Card> deck)
+    private List<Card> DeckFull;
+    private List<Card> DeckUsed;
+
+    public Deck()
     {
-        Console.WriteLine("Initializing the deck...");
-        string[] baseCards ={"0","1","2","3",
-                            "4","5","6","7",
-                            "8","9","+","+",
-                            "-","-","×","÷"};
-        foreach (var card in baseCards)
+        DeckFull =
+        [
+            new Card(CardCategory.Operator, "+"),
+            new Card(CardCategory.Operator, "+"),
+            new Card(CardCategory.Operator, "+"),
+            new Card(CardCategory.Operator, "+"),
+            new Card(CardCategory.Operator, "-"),
+            new Card(CardCategory.Operator, "-"),
+            new Card(CardCategory.Operator, "-"),
+            new Card(CardCategory.Operator, "-"),
+            new Card(CardCategory.Operator, "*"),
+            new Card(CardCategory.Operator, "*"),
+            new Card(CardCategory.Operator, "/"),
+            new Card(CardCategory.Operator, "/"),
+        ];
+
+        for (int i = 0; i < 3; i++)
         {
-            if (card == "+" || card == "-" || card == "×" || card == "÷")
+            for (int j = 1; j < 10; j++)
             {
-                var newCard = new Card();
-                newCard.addCard(card, "Operator");
-                deck.Add(newCard);
-                continue;
-            }
-            else {
-                var newCard = new Card();
-                newCard.addCard(card, "decimal");
-                deck.Add(newCard);
-                continue;
+                DeckFull.Add(new Card(CardCategory.Number, j.ToString()));
             }
         }
-        Console.WriteLine("Deck initialized with the following cards:");
-        foreach (var card in deck)
-        {
-            Console.WriteLine(card.value);
-        }
+
+        Random.Shared.Shuffle(CollectionsMarshal.AsSpan(DeckFull));
+        DeckUsed = DeckFull;
     }
 
-    public void DeckShuffle(List<Card> deck)
+    public void Reset()
     {
-        Console.WriteLine("Shuffling the deck...");
-        Random.Shared.Shuffle(CollectionsMarshal.AsSpan(deck));
+        DeckUsed = DeckFull;
     }
 
-    public void DeckDraw(List<Card> deck)
+    public List<Card> Draw(int amount)
     {
-        Console.WriteLine("Drawing a card from the deck...");
-        List<Card> tempDeck = deck.ToList();
-        List<Card> drawnCards = new List<Card>();
-        string choice = "";
-        do {
-            if (tempDeck.Count > 5)
-            {
-                for (int i = 0; i < 5; i++) //Draw 5 Cards
-                {
-                    drawnCards.Add(tempDeck[i]);
-                }
-                tempDeck.RemoveRange(0, 5);
+        var toDraw = Math.Min(DeckUsed.Count, amount);
+        var startIndex = DeckUsed.Count - toDraw;
+        var drawnCards = DeckUsed[startIndex..];
+        DeckUsed.RemoveRange(startIndex, toDraw);
 
-            }
-            else { 
-                for (int i = 0; i < tempDeck.Count; i++)
-                {
-                    drawnCards.Add(tempDeck[i]);
-                }
-                tempDeck.Clear();
-            }
-            
-            Console.WriteLine("Drawn cards:");
-            foreach (var card in drawnCards)
-            {
-                Console.Write(card.value + " ");
-            }
-            if (tempDeck.Count == 0)
-            {
-                Console.WriteLine("\nNo more cards left in the deck.");
-                break;
-            }
-            else {
-            Console.WriteLine("Draw Again? (y/n)");
-            drawnCards.Clear();
-            choice = Console.ReadLine();
-            Console.WriteLine();
-            }
-            
-        }   while (tempDeck.Count != 0 && choice == "y");
-
+        return drawnCards;
     }
 
+    // public void DeckDraw(List<Card> deck)
+    // {
+    //     Console.WriteLine("Drawing a card from the deck...");
+    //     List<Card> tempDeck = deck.ToList();
+    //     List<Card> drawnCards = new List<Card>();
+    //     string choice = "";
+    //     do
+    //     {
+    //         if (tempDeck.Count > 5)
+    //         {
+    //             for (int i = 0; i < 5; i++) //Draw 5 Cards
+    //             {
+    //                 drawnCards.Add(tempDeck[i]);
+    //             }
+    //             tempDeck.RemoveRange(0, 5);
+    //         }
+    //         else
+    //         {
+    //             for (int i = 0; i < tempDeck.Count; i++)
+    //             {
+    //                 drawnCards.Add(tempDeck[i]);
+    //             }
+    //             tempDeck.Clear();
+    //         }
+    //
+    //         Console.WriteLine("Drawn cards:");
+    //         foreach (var card in drawnCards)
+    //         {
+    //             Console.Write(card.value + " ");
+    //         }
+    //         if (tempDeck.Count == 0)
+    //         {
+    //             Console.WriteLine("\nNo more cards left in the deck.");
+    //             break;
+    //         }
+    //         else
+    //         {
+    //             Console.WriteLine("Draw Again? (y/n)");
+    //             drawnCards.Clear();
+    //             choice = Console.ReadLine();
+    //             Console.WriteLine();
+    //         }
+    //     } while (tempDeck.Count != 0 && choice == "y");
+    // }
 }
