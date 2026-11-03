@@ -90,9 +90,10 @@ public class RoundController
     {
         StringBuilder equation = new();
         Card? prevCard = null;
-      
+
         foreach (var card in cards)
-        {  if (prevCard?.Category == card.Category)
+        {
+            if (prevCard?.Category == card.Category)
             {
                 return new ScoreBreakdown(0, 0);
             }
@@ -121,7 +122,6 @@ public class RoundController
         if (!CanAct(cards, PlaysRemaining))
         {
             return PlayResult.Err;
-
         }
 
         var score = EvaluateMathString(cards, 1.0);

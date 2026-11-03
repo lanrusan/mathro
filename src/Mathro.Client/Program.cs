@@ -136,6 +136,70 @@ class CardView(Card card, Vector2 position)
     }
 }
 
+class Button(string label, string hint, Rectangle bounds, Color color, Color hoverColor)
+{
+    const int FontSize = 24;
+    const int HintSize = 14;
+
+    private static readonly Color DisabledColor = new(90, 90, 90, 255);
+    private static readonly Color DisabledText = new(170, 170, 170, 255);
+
+    public readonly Rectangle Bounds = bounds;
+
+    private bool Enabled;
+    private bool Hovered;
+
+    public bool Update(MouseInput input, bool enabled)
+    {
+        Enabled = enabled;
+        Hovered = Raylib.CheckCollisionPointRec(input.MousePosition, Bounds);
+
+        var clicked = false;
+        if (input.MouseAction == MouseAction.LeftClick)
+        {
+            clicked = Hovered && Enabled;
+        }
+
+        return clicked;
+    }
+
+    public void Draw()
+    {
+        var face = Bounds;
+
+        Raylib.DrawRectangleRounded(
+            new Rectangle(Bounds.X, Bounds.Y + 4, Bounds.Width, Bounds.Height),
+            0.3f,
+            0,
+            new Color(0, 0, 0, 70)
+        );
+
+        var fill =
+            !Enabled ? DisabledColor
+            : Hovered ? hoverColor
+            : color;
+        Raylib.DrawRectangleRounded(face, 0.3f, 0, fill);
+
+        var labelWidth = Raylib.MeasureText(label, FontSize);
+        Raylib.DrawText(
+            label,
+            (int)(face.X + ((face.Width - labelWidth) / 2)),
+            (int)(face.Y + ((face.Height - FontSize) / 2)),
+            FontSize,
+            Enabled ? Color.White : DisabledText
+        );
+
+        var hintWidth = Raylib.MeasureText(hint, HintSize);
+        Raylib.DrawText(
+            hint,
+            (int)(Bounds.X + ((Bounds.Width - hintWidth) / 2)),
+            (int)(Bounds.Y + Bounds.Height + 8),
+            HintSize,
+            new Color(255, 255, 255, 140)
+        );
+    }
+}
+
 interface IScene
 {
     public void Update(float dt, MouseInput input);
@@ -188,8 +252,14 @@ class PickingScene : IScene
     const int HandY = 450;
     const float HandWidth = 800;
 
-    const int DeckX = 1050;
+    const int DeckX = 1150;
     const int DeckY = 600;
+
+    const float ButtonWidth = 170;
+    const float ButtonHeight = 50;
+    const float ButtonGap = 20;
+    const float ButtonY = HandY + CardView.Height + 45;
+    const float ButtonsX = HandX + ((HandWidth - ((2 * ButtonWidth) + ButtonGap)) / 2);
 
     private bool IsDebug = true;
 
@@ -206,6 +276,25 @@ class PickingScene : IScene
     private Vector2 DraggedDisplacement = Vector2.Zero;
 
     private Vector2 LightSource = new(640, -100);
+
+    private readonly Button PlayButton = new(
+        "Play",
+        "Space",
+        new(ButtonsX, ButtonY, ButtonWidth, ButtonHeight),
+        new Color(52, 120, 210, 255),
+        new Color(85, 150, 240, 255)
+    );
+
+    private readonly Button DiscardButton = new(
+        "Discard",
+        "Backspace",
+        new(ButtonsX + ButtonWidth + ButtonGap, ButtonY, ButtonWidth, ButtonHeight),
+        new Color(200, 70, 60, 255),
+        new Color(230, 105, 95, 255)
+    );
+
+    private bool PlayClicked;
+    private bool DiscardClicked;
 
     public PickingScene(RunInfo info)
     {
@@ -273,7 +362,7 @@ class PickingScene : IScene
         }
     }
 
-    private void UpdateCollisions(MouseInput input)
+    private void UpdateHandCollisions(MouseInput input)
     {
         var hasCollided = false;
         foreach (CardView card in Hand.AsEnumerable().Reverse())
@@ -289,7 +378,7 @@ class PickingScene : IScene
                 {
                     case MouseAction.LeftClick:
                         var selected = Hand.FindAll(v => v.IsSelected).ToList().Count;
-                        if (selected >= Info.Settings.MaxCardsPerPlay)
+                        if (selected >= Info.Settings.MaxCardsPerPlay && !card.IsSelected)
                         {
                             break;
                         }
@@ -330,7 +419,7 @@ class PickingScene : IScene
 
         var cards = selected.Select(v => v.Card).ToList();
 
-        if (Raylib.IsKeyPressed(KeyboardKey.Backspace))
+        if (Raylib.IsKeyPressed(KeyboardKey.Backspace) || DiscardClicked)
         {
             var result = Controller.Discard(cards);
             if (!result.Ok)
@@ -345,7 +434,7 @@ class PickingScene : IScene
             );
             SpawnCardViews(result.Drawn);
         }
-        else if (Raylib.IsKeyPressed(KeyboardKey.Space))
+        else if (Raylib.IsKeyPressed(KeyboardKey.Space) || PlayClicked)
         {
             var result = Controller.PlayHand(cards);
             if (!result.Ok)
@@ -356,6 +445,23 @@ class PickingScene : IScene
             SendAway(selected, v => new Vector2(v.TargetPosition.X, v.TargetPosition.Y - 200), 0);
             SpawnCardViews(result.Drawn);
         }
+    }
+
+    private void UpdateButtons(MouseInput input)
+    {
+        var cards = Hand.Where(v => v.IsSelected).Select(v => v.Card).ToList();
+
+        var isValid = cards.Count > 0;
+
+        var canAct =
+            Controller.Phase == RoundPhase.Selecting
+            && ActingHand.Count == 0
+            && Dragged is null
+            && cards.Count > 0
+            && cards.Count <= Controller.Settings.MaxCardsPerPlay;
+
+        PlayClicked = PlayButton.Update(input, canAct && isValid && Controller.PlaysRemaining > 0);
+        DiscardClicked = DiscardButton.Update(input, canAct && Controller.DiscardsRemaining > 0);
     }
 
     private void SendAway(List<CardView> views, Func<CardView, Vector2> destination, float rotation)
@@ -374,23 +480,18 @@ class PickingScene : IScene
         if (Raylib.IsKeyPressed(KeyboardKey.Tab))
             IsDebug = !IsDebug;
 
-        if (IsDebug && Raylib.IsKeyDown(KeyboardKey.LeftShift)|| Raylib.IsKeyDown(KeyboardKey.RightShift))
+        if (
+            IsDebug && Raylib.IsKeyDown(KeyboardKey.LeftShift)
+            || Raylib.IsKeyDown(KeyboardKey.RightShift)
+        )
         {
             if (Raylib.IsKeyPressed(KeyboardKey.Enter))
             {
-                //if()
-                // Hand.AddRange(new CardView(Controller.DrawDebug(1)[0], DeckPosition));
-
-
-
                 var drawn = Controller.DrawDebug(1);
                 if (drawn.Count != 0)
                 {
-                    
                     Hand.AddRange(new CardView(drawn[0], DeckPosition));
                 }
-              
-
             }
 
             if (Raylib.IsKeyPressed(KeyboardKey.Backslash) && Hand.Count != 0)
@@ -400,11 +501,13 @@ class PickingScene : IScene
 
             if (Raylib.IsKeyPressed(KeyboardKey.Backspace) && Hand.Count != 0)
             {
-                var discard = Hand[Hand.Count - 1];
+                var discard = Hand[^1];
                 Hand.RemoveAt(Hand.Count - 1);
                 SendAway(
-                    new List<CardView>() { discard },
-                    v => new Vector2(Program.VirtualWidth + 200, v.TargetPosition.Y), 15);
+                    [discard],
+                    v => new Vector2(Program.VirtualWidth + 200, v.TargetPosition.Y),
+                    15
+                );
             }
         }
 
@@ -415,7 +518,8 @@ class PickingScene : IScene
             }
         );
 
-        UpdateCollisions(input);
+        UpdateHandCollisions(input);
+        UpdateButtons(input);
 
         if (ActingHand.Count == 0 && Dragged is null && Controller.Phase == RoundPhase.Selecting)
         {
@@ -542,6 +646,9 @@ class PickingScene : IScene
 
     public void DrawInfo()
     {
+        const int StartBorderX = 25;
+        const int StartX = StartBorderX + 25;
+
         Raylib.DrawRectangleRounded(
             new(HandX, 35, (int)HandWidth, (int)CardView.Height),
             0.25f,
@@ -549,21 +656,29 @@ class PickingScene : IScene
             new Color(0, 0, 0, 40)
         );
 
-        Raylib.DrawRectangle(50, 100, 200, 500, new Color(0, 0, 0, 40));
+        Raylib.DrawRectangle(StartBorderX, 100, 200, 500, new Color(0, 0, 0, 40));
 
-        Raylib.DrawText($"Round: {Controller.CurrentRound}", 120, 120, 20, Color.RayWhite);
-        Raylib.DrawText($"Plays Left: {Controller.PlaysRemaining}", 120, 150, 20, Color.RayWhite);
+        Raylib.DrawText($"Round: {Controller.CurrentRound}", StartX, 120, 20, Color.RayWhite);
+        Raylib.DrawText($"Plays Left: {Controller.PlaysRemaining}", StartX, 150, 20, Color.RayWhite);
         Raylib.DrawText(
             $"Discards Left: {Controller.DiscardsRemaining}",
-            120,
+            StartX,
             180,
             20,
             Color.RayWhite
         );
         Raylib.DrawText(
-            $"Score: {Controller.AccumulatedScore} / {Controller.TargetScore}",
-            120,
+            $"Score: \n  {Controller.AccumulatedScore} / {Controller.TargetScore}",
+            StartX,
             210,
+            20,
+            Color.RayWhite
+        );
+
+        Raylib.DrawText(
+            $"Cards Left: \n  {Controller.DeckRemaining} / {Controller.DeckTotal}",
+            StartX,
+            270,
             20,
             Color.RayWhite
         );
@@ -576,6 +691,9 @@ class PickingScene : IScene
         DrawDeck(assets);
 
         DrawInfo();
+
+        PlayButton.Draw();
+        DiscardButton.Draw();
 
         DrawHand(assets);
 
