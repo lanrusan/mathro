@@ -10,14 +10,6 @@ public enum RoundPhase
     Lost,
 }
 
-public enum PlayStatus
-{
-    Err,
-    Scored,
-    RoundWon,
-    RoundLost,
-}
-
 public record RoundSettings(
     int HandSize = 11,
     int PlaysPerRound = 5,
@@ -32,11 +24,9 @@ public readonly record struct ScoreBreakdown(double Base, double Multiplier)
         Math.Max(0, (long)Math.Round(Base * Multiplier, MidpointRounding.AwayFromZero));
 }
 
-public record PlayResult(PlayStatus Status, ScoreBreakdown Breakdown, IReadOnlyList<Card> Drawn)
+public record PlayResult(bool Ok, ScoreBreakdown Breakdown, IReadOnlyList<Card> Drawn)
 {
-    public bool Ok => Status != PlayStatus.Err;
-
-    public static readonly PlayResult Err = new(PlayStatus.Err, default, []);
+    public static readonly PlayResult Err = new(false, default, []);
 }
 
 public record DiscardResult(bool Ok, List<Card> Drawn)
@@ -62,6 +52,8 @@ public class RoundController
     public int DeckRemaining => _deck.Remaining;
     public int DeckTotal => _deck.Total;
 
+    private static readonly DataTable Evaluator = new();
+
     public IReadOnlyList<Card> Hand
     {
         get { return _hand; }
@@ -73,7 +65,7 @@ public class RoundController
         Settings = settings;
         CurrentRound = roundNumber;
 
-        TargetScore = (long)Math.Round(500 * Math.Pow(1.5, roundNumber - 1));
+        TargetScore = 100 + (20 * roundNumber);
         PlaysRemaining = settings.PlaysPerRound;
         DiscardsRemaining = settings.DiscardsPerRound;
 
@@ -81,12 +73,12 @@ public class RoundController
         RefillHand();
     }
 
-    private ScoreBreakdown EvaluateCards(IReadOnlyList<Card> cards)
-    {
-        return new ScoreBreakdown(1, 1);
-    }
+    // private ScoreBreakdown EvaluateCards(IReadOnlyList<Card> cards)
+    // {
+    //     return new ScoreBreakdown(1, 1);
+    // }
 
-    private ScoreBreakdown EvaluateMathString(IReadOnlyList<Card> cards, double multiplier)
+    private ScoreBreakdown EvaluateMathString(IReadOnlyList<Card> cards)
     {
         StringBuilder equation = new();
         Card? prevCard = null;
@@ -106,8 +98,7 @@ public class RoundController
 
         try
         {
-            DataTable dt = new();
-            var result = dt.Compute(equation.ToString(), "");
+            var result = Evaluator.Compute(equation.ToString(), "");
             var value = Convert.ToDouble(result);
             return new ScoreBreakdown(value, Multiplier);
         }
@@ -124,7 +115,7 @@ public class RoundController
             return PlayResult.Err;
         }
 
-        var score = EvaluateMathString(cards, 1.0);
+        var score = EvaluateMathString(cards);
 
         PlaysRemaining--;
         AccumulatedScore += score.Total;
@@ -145,14 +136,7 @@ public class RoundController
             drawn = RefillHand();
         }
 
-        var status = Phase switch
-        {
-            RoundPhase.Won => PlayStatus.RoundWon,
-            RoundPhase.Lost => PlayStatus.RoundLost,
-            _ => PlayStatus.Scored,
-        };
-
-        return new PlayResult(status, score, drawn);
+        return new PlayResult(true, score, drawn);
     }
 
     public bool HasMetTarget()
