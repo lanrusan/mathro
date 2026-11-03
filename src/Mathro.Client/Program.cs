@@ -184,9 +184,9 @@ enum ActionState
 
 class PickingScene : IScene
 {
-    const int HandX = 350;
+    const int HandX = 250;
     const int HandY = 450;
-    const float HandWidth = 596;
+    const float HandWidth = 800;
 
     const int DeckX = 1050;
     const int DeckY = 600;
@@ -374,11 +374,23 @@ class PickingScene : IScene
         if (Raylib.IsKeyPressed(KeyboardKey.Tab))
             IsDebug = !IsDebug;
 
-        if (IsDebug && Raylib.IsKeyDown(KeyboardKey.LeftShift))
+        if (IsDebug && Raylib.IsKeyDown(KeyboardKey.LeftShift)|| Raylib.IsKeyDown(KeyboardKey.RightShift))
         {
             if (Raylib.IsKeyPressed(KeyboardKey.Enter))
             {
-                Hand.AddRange(new CardView(Controller.DrawDebug(1)[0], DeckPosition));
+                //if()
+                // Hand.AddRange(new CardView(Controller.DrawDebug(1)[0], DeckPosition));
+
+
+
+                var drawn = Controller.DrawDebug(1);
+                if (drawn.Count != 0)
+                {
+                    
+                    Hand.AddRange(new CardView(drawn[0], DeckPosition));
+                }
+              
+
             }
 
             if (Raylib.IsKeyPressed(KeyboardKey.Backslash) && Hand.Count != 0)
@@ -388,7 +400,11 @@ class PickingScene : IScene
 
             if (Raylib.IsKeyPressed(KeyboardKey.Backspace) && Hand.Count != 0)
             {
+                var discard = Hand[Hand.Count - 1];
                 Hand.RemoveAt(Hand.Count - 1);
+                SendAway(
+                    new List<CardView>() { discard },
+                    v => new Vector2(Program.VirtualWidth + 200, v.TargetPosition.Y), 15);
             }
         }
 
@@ -533,7 +549,7 @@ class PickingScene : IScene
             new Color(0, 0, 0, 40)
         );
 
-        Raylib.DrawRectangle(100, 100, 200, 500, new Color(0, 0, 0, 40));
+        Raylib.DrawRectangle(50, 100, 200, 500, new Color(0, 0, 0, 40));
 
         Raylib.DrawText($"Round: {Controller.CurrentRound}", 120, 120, 20, Color.RayWhite);
         Raylib.DrawText($"Plays Left: {Controller.PlaysRemaining}", 120, 150, 20, Color.RayWhite);
@@ -674,7 +690,7 @@ static class Program
             world.Scene.Update(dt, input);
 
             Raylib.BeginDrawing();
-            Raylib.ClearBackground(Color.Black);
+            Raylib.ClearBackground(Color.DarkGreen);
             Raylib.BeginMode2D(world.Camera);
 
             world.Scene.Draw(world.Assets);

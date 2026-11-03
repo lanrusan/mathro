@@ -19,10 +19,11 @@ public enum PlayStatus
 }
 
 public record RoundSettings(
-    int HandSize = 9,
+    int HandSize = 11,
     int PlaysPerRound = 5,
     int DiscardsPerRound = 4,
-    int MaxCardsPerPlay = 5
+    int MaxCardsPerPlay = 7,
+    int TotalMultiplier = 1
 );
 
 public readonly record struct ScoreBreakdown(double Base, double Multiplier)
@@ -55,6 +56,7 @@ public class RoundController
     public long AccumulatedScore { get; private set; }
     public int PlaysRemaining { get; private set; }
     public int DiscardsRemaining { get; private set; }
+    public int Multiplier => Settings.TotalMultiplier;
     public RoundPhase Phase { get; private set; } = RoundPhase.Selecting;
 
     public int DeckRemaining => _deck.Remaining;
@@ -81,15 +83,24 @@ public class RoundController
 
     private ScoreBreakdown EvaluateCards(IReadOnlyList<Card> cards)
     {
-        return new ScoreBreakdown(1, 2);
+        return new ScoreBreakdown(1, 1);
     }
 
-    private ScoreBreakdown EvaluateMathString(IReadOnlyList<Card> cards)
+    private ScoreBreakdown EvaluateMathString(IReadOnlyList<Card> cards, double multiplier)
     {
         StringBuilder equation = new();
+        Card? prevCard = null;
+      
         foreach (var card in cards)
-        {
-            equation.Append(card.Value);
+        {  if (prevCard?.Category == card.Category)
+            {
+                return new ScoreBreakdown(0, 0);
+            }
+            else
+            {
+                equation.Append(card.Value);
+                prevCard = card;
+            }
         }
 
         try
@@ -97,7 +108,7 @@ public class RoundController
             DataTable dt = new();
             var result = dt.Compute(equation.ToString(), "");
             var value = Convert.ToDouble(result);
-            return new ScoreBreakdown(value, 1);
+            return new ScoreBreakdown(value, Multiplier);
         }
         catch
         {
@@ -110,9 +121,10 @@ public class RoundController
         if (!CanAct(cards, PlaysRemaining))
         {
             return PlayResult.Err;
+
         }
 
-        var score = EvaluateMathString(cards);
+        var score = EvaluateMathString(cards, 1.0);
 
         PlaysRemaining--;
         AccumulatedScore += score.Total;

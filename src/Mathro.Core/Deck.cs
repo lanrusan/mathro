@@ -6,7 +6,6 @@ public enum CardCategory
 {
     Number,
     Operator,
-    Multiplier,
     Modifier,
 }
 
@@ -15,6 +14,7 @@ public class Card(CardCategory category, string value)
     public CardCategory Category = category;
     public string Value = value;
 }
+
 
 public class Deck
 {
@@ -30,7 +30,7 @@ public class Deck
     {
         _random = random ?? Random.Shared;
 
-        foreach (var (op, count) in new[] { ("+", 4), ("-", 4), ("*", 2), ("/", 2) })
+        foreach (var (op, count) in new[] { ("+", 4), ("-", 4), ("*", 3), ("/", 3) })
         {
             for (int i = 0; i < count; i++)
             {
@@ -38,9 +38,23 @@ public class Deck
             }
         }
 
-        for (int copy = 0; copy < 3; copy++)
+        for (int copy = 0; copy < 2; copy++)
         {
             for (int n = 1; n < 10; n++)
+            {
+                _allCards.Add(new Card(CardCategory.Number, n.ToString()));
+            }
+        }
+
+
+        for (int n = -9; n < 0; n++)
+        {
+            _allCards.Add(new Card(CardCategory.Number, n.ToString()));
+        }
+
+        for (int copy = 0; copy < 1; copy++)
+        {
+            for (decimal n = 0; n < 1; n += 0.1m)
             {
                 _allCards.Add(new Card(CardCategory.Number, n.ToString()));
             }
